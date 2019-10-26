@@ -1,0 +1,182 @@
+#Harrison McKenny with the occasional assistance of the wrathfully sloth @Mwdempse
+
+
+#clear global enviroment
+rm(list=ls())
+
+#initialize data frame
+df1=data.frame(date=numeric(),awayteam=character(),awayscore=integer(),hometeam=character(),homescore=integer(),season=numeric())
+
+#create data frame to store all years into after loop
+colleydf <- data.frame()
+
+#for loop to webscrape all data then rbind all year data into colleydf
+for (i in 1960:2010){
+
+  #including year now creates season even when bowl games were played in next year
+  season <- i 
+  
+  #Print function gives an idea of where the loop is in iterations and when it will finish
+  print(season)
+  
+  #code for scrape make sure to double check widths as a letter off will throw N/A'S
+  df1<-read.fwf(paste("http://homepages.cae.wisc.edu/~dwilson/rsfc/history/howell/cf",i,"gms.txt", sep=""),c(11,27,4,28,3))
+  
+  #initialize columns and get rid of spaces in team names
+  df1$year = as.numeric(i)
+  df1$awaywin<-0
+  df1$homewin<-0
+  
+  #characterize home and away teams so they are not functions with levels
+  hmteam<-as.character(df1$V4)
+  awteam<-as.character(df1$V2)
+  
+  #get rid of spaces in team names
+  hmteam<-gsub(" ","",df1$V4)
+  awteam<-gsub(" ","",df1$V2)
+  df1$V4<-gsub(" ","",df1$V4)
+  df1$V2<-gsub(" ","",df1$V2)
+  
+  #create unique team names for the season we are looking at in i
+  allteams<-c(hmteam,awteam)
+  teams<-unique(allteams)
+  
+  #create vector of d2 teams
+  d2teams<-character()
+  
+  #calculate teams that played under six games(d2teams)
+  for(i in 1:length(teams)){
+    teamnow<-teams[i]
+    gamesplayed<-0
+    for(j in 1:length(awteam)){
+      if((teamnow==hmteam[j]) | (teamnow==awteam[j])){
+        gamesplayed<-gamesplayed+1
+      }
+    }
+    if(gamesplayed <= 5){
+      d2teams <- rbind(d2teams,teamnow)
+    }
+  }
+  #eliminate d2 teams
+  
+  for (i in 1:length(d2teams)){
+    teams<-teams[teams != d2teams[i]]
+    df1<-df1[!(df1$V4==d2teams[i]),]
+    df1<-df1[!(df1$V2==d2teams[i]),]
+  }
+  #**************get rid of ties in this one line****** 
+  df1<-df1[!(df1$V3==df1$V5), ]
+  
+  #Calculate wins for D1 teams in each year
+  for(i in 1:length(df1$V3)){
+    if (df1$V3[i] > df1$V5[i]){
+      df1$awaywin[i] = df1$awaywin[i] + 1
+    } else {
+      df1$homewin[i] = df1$homewin[i] + 1
+    }
+  }
+  
+  #Create hash table to give D1 teams unique I.D.
+  myenv=new.env()
+  values = c(1:length(teams))
+  as.integer(values)
+  for(i in 1:length(teams)){
+    myenv[[teams[i]]] = values [i]
+  }
+ 
+  #Create new data frame that has columns needed for colley matrix except schedule 
+  wins=numeric(length(teams))
+  losses = numeric(length(teams))
+  wl = data.frame(teams,wins,losses,season)
+ 
+  #add wins from home and away team observations into dataframe to corresponding team based on unique I.D.
+   for(c in 1:length(df1$V2)){
+    name = myenv [[df1$V2[c]]]
+    if(df1$awaywin[c] == 1){
+      wl$wins[name]= wl$wins[name]+1
+    }  else if (df1$homewin[c]==1){
+      wl$losses[name] = wl$losses[name] + 1
+    }
+    name = myenv [[df1$V4[c]]]
+    if(df1$homewin[c]==1){
+      wl$wins[name] = wl$wins[name]+1
+    } else if (df1$awaywin[c]==1) {
+      wl$losses[name]=wl$losses[name]+1
+    }
+  }
+ 
+  
+  #create vector of unique I.D.'s corresponding to teams that each individual team played against 
+  team=numeric()
+  opp=numeric()
+  schedule = vector()
+  schedule = NULL
+  allseasons<-rep(list(schedule), length(wl$teams))
+  wl$schedule= allseasons
+  
+  for(c in 1:length(df1$V2)){
+
+    if(df1$V2[c]%in% wl$teams & df1$V4[c] %in% wl$teams){
+      team=myenv[[df1$V2[c]]]
+      opp=myenv[[df1$V4[c]]]
+      wl$schedule[[team]] = c(wl$schedule[[team]],opp)
+      wl$schedule[[opp]] = c(wl$schedule[[opp]],team)
+    }
+  }
+  
+  #rbinding dataframe of teams, wins,losses and schedule for each year to eachother to get df needed for all years
+   colleydf <- rbind(colleydf,wl)
+}
+
+#saving dataframe that has needed info for each year
+save(colleydf,file="FinalProject3")
+
+#Part 1 done ***************************************************************************
+
+
+load("FinalProject3")
+
+#creating function that calculates rankings based on wins losses and schedule
+
+colley<- function(x){
+  #************most important part, must create a subset to draw from each season
+  erin<-subset(colleydf,colleydf$season==x)
+      #calculating colley matrix with code from project 1
+      colley <- matrix(0,nrow = length(erin$teams), ncol = length(erin$teams))
+      
+      for (i in 1:length(erin$teams)){
+        # The first loop will go through each each team
+        # and the next for loop will take us through each column of each row
+        for (j in 1:length(erin$teams)){
+          
+          # if we reach a diagonal fill it with 2+number of games team i plays
+          if(i==j){
+            colley[i,j] <- 2+(length(erin$schedule[[i]]))
+          }
+          
+          # else find out if team i has played the team corresponding to column j
+          # and fill index[i,j] with -1
+          else{
+            for (k in 1:length(erin$schedule[[i]])){ 
+              if(erin$schedule[[i]][k] == j){
+                colley[i,j]=colley[i,j] -1
+              }
+            }
+          }
+        }
+      }
+      
+      # create a vector where the ith element is
+      #   1 + (team[i] num of wins - team[i] num of losses)/2
+      b = NULL
+      for (i in 1:length(erin$teams)){
+        b[i] <- 1+(erin$wins[i]-erin$losses[i])/2
+      }
+  score <- solve(colley,b)
+  solution <- cbind(as.character(erin$teams),score);solution
+  #redefine solution so the results are ordered
+  solution<-solution[order(solution[,2],decreasing = TRUE),]
+  
+  return(solution)
+  }
+#Part 3 done***************************************************************************************
